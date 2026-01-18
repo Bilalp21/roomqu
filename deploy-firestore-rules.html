@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deploy Firestore Rules</title>
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        .warning {
+            background: #fef3c7;
+            color: #92400e;
+            border: 1px solid #fde68a;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .info {
+            background: #dbeafe;
+            color: #1e40af;
+            border: 1px solid #93c5fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+
+        .steps {
+            background: #f8fafc;
+            padding: 20px;
+            border-radius: 5px;
+            margin-top: 20px;
+            border-left: 4px solid #2563eb;
+        }
+
+        .steps h3 {
+            margin-top: 0;
+            color: #1e40af;
+        }
+
+        .steps ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+
+        .steps li {
+            margin: 10px 0;
+            color: #475569;
+            line-height: 1.6;
+        }
+
+        code {
+            background: #f1f5f9;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.9em;
+        }
+
+        .code-block {
+            background: #1e293b;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+            margin: 15px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85em;
+            line-height: 1.5;
+        }
+
+        button {
+            background: #2563eb;
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        a {
+            color: #2563eb;
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>🔒 Deploy Firestore Security Rules</h1>
+
+        <div class="warning">
+            <strong>⚠️ Masalah Terdeteksi:</strong> Data tidak bisa disimpan ke Firebase karena Firestore Security Rules
+            memblokir akses write.
+        </div>
+
+        <div class="info">
+            <strong>ℹ️ Solusi:</strong> Update Firestore Security Rules di Firebase Console untuk mengizinkan admin
+            menulis data.
+        </div>
+
+        <div class="steps">
+            <h3>📋 Cara Deploy Firestore Rules (Manual via Console)</h3>
+            <ol>
+                <li>
+                    Buka <a href="https://console.firebase.google.com/project/roomquindonesia/firestore/rules"
+                        target="_blank">Firebase Console - Firestore Rules</a>
+                </li>
+                <li>
+                    Klik tab <strong>"Rules"</strong> di menu Firestore
+                </li>
+                <li>
+                    Hapus semua rules yang ada dan ganti dengan rules berikut:
+                </li>
+            </ol>
+        </div>
+
+        <div class="code-block">rules_version = '2';
+
+            service cloud.firestore {
+            match /databases/{database}/documents {
+
+            // Settings collection - Admin only can write, everyone can read
+            match /settings/{document=**} {
+            allow read: if true;
+            allow write: if request.auth != null &&
+            request.auth.token.email.matches('admin.*');
+            }
+
+            // Users collection - Users can read/write their own data
+            match /users/{userId} {
+            allow read: if request.auth != null &&
+            (request.auth.uid == userId ||
+            request.auth.token.email.matches('admin.*'));
+            allow write: if request.auth != null && request.auth.uid == userId;
+            allow create: if request.auth != null;
+            }
+
+            // Hotels collection - Admin only
+            match /hotels/{hotelId} {
+            allow read: if true;
+            allow write: if request.auth != null &&
+            request.auth.token.email.matches('admin.*'));
+            }
+
+            // Bookings collection - Users can manage their own bookings
+            match /bookings/{bookingId} {
+            allow read: if request.auth != null &&
+            (resource.data.userId == request.auth.uid ||
+            request.auth.token.email.matches('admin.*'));
+            allow create: if request.auth != null;
+            allow update, delete: if request.auth != null &&
+            (resource.data.userId == request.auth.uid ||
+            request.auth.token.email.matches('admin.*'));
+            }
+            }
+            }</div>
+
+        <div class="steps">
+            <ol start="4">
+                <li>
+                    Klik tombol <strong>"Publish"</strong> atau <strong>"Terbitkan"</strong>
+                </li>
+                <li>
+                    Tunggu beberapa detik hingga rules aktif
+                </li>
+                <li>
+                    Kembali ke halaman <a href="/admin">/admin</a>
+                </li>
+                <li>
+                    Coba ubah <strong>Nama Website / Brand</strong> di menu Pengaturan
+                </li>
+                <li>
+                    Data sekarang akan tersimpan ke Firebase! ✅
+                </li>
+            </ol>
+        </div>
+
+        <div class="info" style="margin-top: 30px;">
+            <strong>💡 Penjelasan Rules:</strong>
+            <ul style="margin: 10px 0; padding-left: 20px;">
+                <li><strong>Settings:</strong> Semua orang bisa baca, hanya admin (email dimulai dengan 'admin') yang
+                    bisa tulis</li>
+                <li><strong>Users:</strong> User hanya bisa baca/tulis data mereka sendiri, admin bisa baca semua</li>
+                <li><strong>Hotels:</strong> Semua orang bisa baca, hanya admin yang bisa tulis</li>
+                <li><strong>Bookings:</strong> User hanya bisa baca/tulis booking mereka sendiri</li>
+            </ul>
+        </div>
+
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e2e8f0;">
+            <button
+                onclick="window.open('https://console.firebase.google.com/project/roomquindonesia/firestore/rules', '_blank')">
+                🚀 Buka Firebase Console
+            </button>
+            <button onclick="window.location.href='/admin'" style="background: #64748b; margin-left: 10px;">
+                ← Kembali ke Admin Panel
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // Copy rules to clipboard
+        function copyRules() {
+            const rules = document.querySelector('.code-block').textContent;
+            navigator.clipboard.writeText(rules).then(() => {
+                alert('✅ Rules berhasil di-copy ke clipboard!');
+            });
+        }
+    </script>
+</body>
+
+</html>
