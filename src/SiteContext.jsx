@@ -13,6 +13,12 @@ export function SiteProvider({ children }) {
     const [siteName, setSiteName] = useState(() => {
         return localStorage.getItem('siteName') || 'RoomQu';
     });
+
+    const [chatEnabled, setChatEnabled] = useState(() => {
+        const stored = localStorage.getItem('chatEnabled');
+        return stored === null ? true : stored === 'true';
+    });
+
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -26,11 +32,15 @@ export function SiteProvider({ children }) {
                     setSiteName(data.siteName);
                     localStorage.setItem('siteName', data.siteName);
                 }
+                if (data.chatEnabled !== undefined) {
+                    setChatEnabled(data.chatEnabled);
+                    localStorage.setItem('chatEnabled', data.chatEnabled);
+                }
             } else {
                 // If doc doesn't exist, we try to create it, but we don't overwrite local if it exists?
                 // Actually, let's just try to set it if we have a value
                 if (!localStorage.getItem('siteName')) {
-                    setDoc(settingsRef, { siteName: 'RoomQu' }).catch(err => console.log("Init failed", err));
+                    setDoc(settingsRef, { siteName: 'RoomQu', chatEnabled: true }).catch(err => console.log("Init failed", err));
                 }
             }
             setLoading(false);
@@ -43,27 +53,36 @@ export function SiteProvider({ children }) {
         return () => unsubscribe();
     }, []);
 
+
     const updateSiteName = async (newName) => {
-        // 1. Optimistic Local Update (Always works)
         setSiteName(newName);
         localStorage.setItem('siteName', newName);
 
-        // 2. Try Cloud Update
         try {
             const settingsRef = doc(db, 'settings', 'general');
             await setDoc(settingsRef, { siteName: newName }, { merge: true });
-            return true;
         } catch (error) {
-            console.warn("Firestore update failed (using local storage fallback):", error);
-            // We return true because from user perspective, it IS saved (locally)
-            // You might want to return 'local' to indicate partial success if needed
-            return true;
+            console.error("Error updating site name:", error);
+        }
+    };
+
+    const updateChatEnabled = async (enabled) => {
+        setChatEnabled(enabled);
+        localStorage.setItem('chatEnabled', enabled);
+
+        try {
+            const settingsRef = doc(db, 'settings', 'general');
+            await setDoc(settingsRef, { chatEnabled: enabled }, { merge: true });
+        } catch (error) {
+            console.error("Error updating chat enabled status:", error);
         }
     };
 
     const value = {
         siteName,
         updateSiteName,
+        chatEnabled,
+        updateChatEnabled,
         loading
     };
 

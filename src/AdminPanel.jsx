@@ -1,39 +1,153 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     LayoutDashboard, Hotel, Users, Settings, User,
     Plus, Search, Trash2, Edit, Bell, LogOut,
     TrendingUp, DollarSign, Calendar, ChevronDown,
     Mail, Phone, MapPin, Shield, Camera, CheckCircle,
-    XCircle, Clock, Building, FileText, CreditCard, Eye
+    XCircle, Clock, Building, FileText, CreditCard, Eye, Sparkles
 } from 'lucide-react';
 import { HOTELS } from './data';
 import { VENDORS, VENDOR_STATS } from './vendorData';
 import { useNavigate } from 'react-router-dom';
 import { useSite } from './SiteContext';
 import { useAuth } from './AuthContext';
-import { auth } from './firebase';
+import { collection, onSnapshot, doc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { db, auth } from './firebase';
 import { signOut } from 'firebase/auth';
 import VendorManagement from './VendorManagement';
 import { VendorDetailModal, AddVendorModal } from './VendorModals';
+import ApprovalTab from './admin/ApprovalTab';
 
 export default function AdminPanel() {
     const navigate = useNavigate();
     const { currentUser } = useAuth();
     const [activeTab, setActiveTab] = useState('dashboard');
-    const [hotels, setHotels] = useState(HOTELS);
-    const { siteName, updateSiteName } = useSite();
+
+    // HOTEL DATA MANAGEMENT (FIREBASE)
+    const [allHotels, setAllHotels] = useState([]);
+    const [dbError, setDbError] = useState(null);
+
+    // Real-time listener for ALL hotels
+    useEffect(() => {
+        const unsubscribe = onSnapshot(
+            collection(db, "hotels"),
+            (snapshot) => {
+                const hotelsData = snapshot.docs.map(doc => ({
+                    id: doc.id,
+                    ...doc.data()
+                }));
+                setAllHotels(hotelsData);
+                setDbError(null);
+                console.log(`[AdminPanel] Loaded ${hotelsData.length} hotels from Firestore`);
+            },
+            (error) => {
+                console.error("Error fetching hotels:", error);
+                setDbError("Gagal mengambil data dari database. Cek koneksi atau izin akses. Detail: " + error.code);
+            }
+        );
+        return () => unsubscribe();
+    }, []);
+
+    // Derived states
+    // Case-insensitive check for robustness
+    const pendingHotels = allHotels.filter(h => h.status && h.status.toLowerCase() === 'pending');
+    const activeHotels = allHotels.filter(h => h.status === 'active');
+    // Keep approvalHotels for compatibility if used elsewhere, but prefer pendingHotels for the tab
+    const approvalHotels = allHotels;
+
+    console.log("Admin Panel All Hotels:", allHotels);
+    console.log("Admin Panel Pending Hotels:", pendingHotels);
+
+    const { siteName, updateSiteName, chatEnabled, updateChatEnabled } = useSite();
     const [tempSiteName, setTempSiteName] = useState(siteName);
+    // AI Settings State
+    const [aiApiKey, setAiApiKey] = useState(localStorage.getItem('geminiApiKey') || '');
+    const [aiPrompt, setAiPrompt] = useState(localStorage.getItem('geminiSystemPrompt') || '');
     const [searchQuery, setSearchQuery] = useState('');
     const [showAddModal, setShowAddModal] = useState(false);
     const [showUserMenu, setShowUserMenu] = useState(false);
 
     // Vendor Management States
-    const [vendors, setVendors] = useState(VENDORS);
+    // VENDOR DATA MANAGEMENT (FIREBASE)
+    const [vendors, setVendors] = useState([]);
+
+    useEffect(() => {
+        const unsubscribe = onSnapshot(collection(db, "vendors"), (snapshot) => {
+            const vendorsData = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            }));
+            setVendors(vendorsData);
+        }, (error) => {
+            console.error("Error fetching vendors:", error);
+        });
+        return () => unsubscribe();
+    }, []);
+
     const [vendorSearchQuery, setVendorSearchQuery] = useState('');
     const [vendorFilter, setVendorFilter] = useState('all'); // all, active, pending, suspended
     const [selectedVendor, setSelectedVendor] = useState(null);
     const [showVendorModal, setShowVendorModal] = useState(false);
     const [showVendorDetailModal, setShowVendorDetailModal] = useState(false);
+
+    const handleApproveHotel = async (id) => {
+        if (confirm('Setujui hotel ini untuk ditayangkan?')) {
+            try {
+                await updateDoc(doc(db, "hotels", id), {
+                    status: 'active',
+                    approvedAt: new Date().toISOString()
+                });
+                // No need to manually update state, onSnapshot handles it
+            } catch (error) {
+                console.error("Error approving hotel:", error);
+                alert("Gagal menyetujui hotel: " + error.message);
+            }
+        }
+    };
+
+    const handleRejectHotel = async (id) => {
+        if (confirm('Tolak pengajuan hotel ini?')) {
+            try {
+                await updateDoc(doc(db, "hotels", id), {
+                    status: 'rejected',
+                    rejectedAt: new Date().toISOString()
+                });
+            } catch (error) {
+                console.error("Error rejecting hotel:", error);
+                alert("Gagal menolak hotel: " + error.message);
+            }
+        }
+    };
+
+    const handleSeedDatabase = async () => {
+        if (!confirm('PERINGATAN: Ini akan mengunggah data dummy hotel ke Firebase. Lanjutkan?')) return;
+
+        try {
+            const batch = writeBatch(db);
+            let count = 0;
+
+            HOTELS.forEach((hotel) => {
+                // Check if hotel already exists in our current state state to avoid dups if possible, 
+                // but ID might differ.
+                // For seeding, we just create new refs with custom IDs if possible or auto-ids.
+                // Let's use the ID from the mock data as the doc ID to be safe and idempotent-ish.
+                const docRef = doc(db, "hotels", hotel.id);
+                batch.set(docRef, {
+                    ...hotel,
+                    partnerId: 'seed-partner', // Dummy partner ID
+                    status: 'active', // Default active for seed data
+                    createdAt: new Date().toISOString()
+                });
+                count++;
+            });
+
+            await batch.commit();
+            alert(`Berhasil mengunggah ${count} hotel ke database!`);
+        } catch (error) {
+            console.error("Error seeding database:", error);
+            alert("Gagal seeding database: " + error.message);
+        }
+    };
 
     // Admin Profile Data
     const [adminProfile, setAdminProfile] = useState({
@@ -45,7 +159,7 @@ export default function AdminPanel() {
         joinDate: 'Januari 2024'
     });
 
-    // Mock Statistics with better data
+    // Mock Statistics with real data integration
     const stats = [
         {
             title: 'Total Pendapatan',
@@ -65,74 +179,100 @@ export default function AdminPanel() {
         },
         {
             title: 'Hotel Aktif',
-            value: hotels.length,
+            value: activeHotels.length, // synced
             icon: Hotel,
             gradient: 'from-orange-500 to-red-600',
-            trend: '+2',
+            trend: '+Realtime',
             trendUp: true
         },
         {
             title: 'Vendor Terdaftar',
-            value: '18',
+            value: vendors.length,
             icon: Users,
             gradient: 'from-purple-500 to-pink-600',
-            trend: '+4',
+            trend: '+Realtime',
             trendUp: true
         },
     ];
 
-    const filteredHotels = hotels.filter(hotel =>
+    // Filter logic for Management Tab
+    const filteredHotels = activeHotels.filter(hotel =>
         hotel.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        hotel.vendor.toLowerCase().includes(searchQuery.toLowerCase())
+        (hotel.vendor || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const handleDelete = (id) => {
+    const handleDelete = async (id) => {
         if (confirm('Apakah anda yakin ingin menghapus hotel ini?')) {
-            setHotels(hotels.filter(h => h.id !== id));
+            try {
+                await deleteDoc(doc(db, "hotels", id));
+            } catch (error) {
+                console.error("Error deleting hotel:", error);
+                alert("Gagal menghapus hotel: " + error.message);
+            }
         }
     };
 
-    // Vendor Management Handlers
-    const handleVendorStatusChange = (vendorId, newStatus) => {
-        setVendors(vendors.map(v =>
-            v.id === vendorId ? { ...v, status: newStatus } : v
-        ));
+    // Vendor Management Handlers (FIREBASE)
+    const handleVendorStatusChange = async (vendorId, newStatus) => {
+        try {
+            await updateDoc(doc(db, "vendors", vendorId), { status: newStatus });
+        } catch (error) {
+            console.error("Error updating vendor status:", error);
+            alert("Gagal update status vendor: " + error.message);
+        }
     };
 
-    const handleVendorApprove = (vendorId) => {
+    const handleVendorApprove = async (vendorId) => {
         if (confirm('Setujui vendor ini?')) {
-            handleVendorStatusChange(vendorId, 'active');
-            setShowVendorDetailModal(false);
-            alert('Vendor berhasil disetujui!');
+            try {
+                await updateDoc(doc(db, "vendors", vendorId), {
+                    status: 'active',
+                    approvedAt: new Date().toISOString()
+                });
+                setShowVendorDetailModal(false);
+                alert('Vendor berhasil disetujui!');
+            } catch (error) {
+                alert("Gagal: " + error.message);
+            }
         }
     };
 
-    const handleVendorReject = (vendorId) => {
+    const handleVendorReject = async (vendorId) => {
         if (confirm('Tolak vendor ini?')) {
-            setVendors(vendors.filter(v => v.id !== vendorId));
-            setShowVendorDetailModal(false);
-            alert('Vendor ditolak dan dihapus dari sistem.');
+            try {
+                await updateDoc(doc(db, "vendors", vendorId), {
+                    status: 'rejected',
+                    rejectedAt: new Date().toISOString()
+                });
+                setShowVendorDetailModal(false);
+                alert('Vendor ditolak.');
+            } catch (error) {
+                alert("Gagal: " + error.message);
+            }
         }
     };
 
-    const handleVendorSuspend = (vendorId) => {
+    const handleVendorSuspend = async (vendorId) => {
         if (confirm('Suspend vendor ini?')) {
-            handleVendorStatusChange(vendorId, 'suspended');
+            await handleVendorStatusChange(vendorId, 'suspended');
             setShowVendorDetailModal(false);
             alert('Vendor berhasil di-suspend.');
         }
     };
 
-    const handleVendorDelete = (vendorId) => {
+    const handleVendorDelete = async (vendorId) => {
         if (confirm('Apakah Anda yakin ingin menghapus vendor ini? Tindakan ini tidak dapat dibatalkan.')) {
-            setVendors(vendors.filter(v => v.id !== vendorId));
-            alert('Vendor berhasil dihapus.');
+            try {
+                await deleteDoc(doc(db, "vendors", vendorId));
+                alert('Vendor berhasil dihapus.');
+            } catch (error) {
+                alert("Gagal hapus: " + error.message);
+            }
         }
     };
 
-    const handleAddVendor = (formData) => {
+    const handleAddVendor = async (formData) => {
         const newVendor = {
-            id: `VND${String(vendors.length + 1).padStart(3, '0')}`,
             ...formData,
             status: 'pending',
             verificationStatus: 'pending',
@@ -150,11 +290,18 @@ export default function AdminPanel() {
                 bankName: formData.bankName,
                 accountNumber: formData.accountNumber,
                 accountName: formData.accountName
-            }
+            },
+            createdAt: new Date().toISOString()
         };
-        setVendors([...vendors, newVendor]);
-        setShowVendorModal(false);
-        alert('Vendor baru berhasil ditambahkan!');
+
+        try {
+            await addDoc(collection(db, "vendors"), newVendor);
+            setShowVendorModal(false);
+            alert('Vendor baru berhasil ditambahkan!');
+        } catch (error) {
+            console.error("Error adding vendor:", error);
+            alert("Gagal menambahkan vendor: " + error.message);
+        }
     };
 
     const handleLogout = async () => {
@@ -200,6 +347,22 @@ export default function AdminPanel() {
                         active={activeTab === 'hotels'}
                         onClick={() => setActiveTab('hotels')}
                     />
+
+                    {/* Approval Tab Notification Badge */}
+                    <div className="relative">
+                        <NavItem
+                            icon={CheckCircle}
+                            label="Approval Hotel"
+                            active={activeTab === 'approvals'}
+                            onClick={() => setActiveTab('approvals')}
+                        />
+                        {pendingHotels.length > 0 && (
+                            <span className="absolute right-4 top-3 w-5 h-5 bg-red-500 text-white text-[10px] font-bold flex items-center justify-center rounded-full animate-pulse border-2 border-white">
+                                {pendingHotels.length}
+                            </span>
+                        )}
+                    </div>
+
                     <NavItem
                         icon={Users}
                         label="Vendor & Mitra"
@@ -220,6 +383,12 @@ export default function AdminPanel() {
                             setActiveTab('settings');
                             setTempSiteName(siteName);
                         }}
+                    />
+                    <NavItem
+                        icon={Sparkles}
+                        label="AI Chatbot"
+                        active={activeTab === 'ai-settings'}
+                        onClick={() => setActiveTab('ai-settings')}
                     />
                 </nav>
 
@@ -263,6 +432,7 @@ export default function AdminPanel() {
                             {activeTab === 'vendors' && 'Vendor & Mitra'}
                             {activeTab === 'profile' && 'Profil Admin'}
                             {activeTab === 'settings' && 'Pengaturan Website'}
+                            {activeTab === 'ai-settings' && 'Konfigurasi AI'}
                         </h1>
                         <p className="text-slate-500">
                             {activeTab === 'dashboard' && 'Selamat datang kembali, Admin!'}
@@ -270,6 +440,7 @@ export default function AdminPanel() {
                             {activeTab === 'vendors' && 'Manajemen vendor dan mitra bisnis'}
                             {activeTab === 'profile' && 'Kelola informasi profil Anda'}
                             {activeTab === 'settings' && 'Konfigurasi aplikasi dan preferensi'}
+                            {activeTab === 'ai-settings' && 'Atur API Key dan Prompt untuk Chatbot Gemini'}
                         </p>
                     </div>
                     <div className="flex items-center gap-3">
@@ -605,6 +776,127 @@ export default function AdminPanel() {
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* Approval Tab */}
+                {activeTab === 'approvals' && (
+                    <div className="space-y-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <div>
+                                <h2 className="text-2xl font-bold text-slate-800">Menunggu Persetujuan</h2>
+                                <p className="text-slate-500">Daftar hotel baru yang diajukan oleh partner.</p>
+                            </div>
+                        </div>
+
+                        <ApprovalTab
+                            pendingHotels={pendingHotels}
+                            onApprove={handleApproveHotel}
+                            onReject={handleRejectHotel}
+                        />
+                    </div>
+                )}
+
+                {/* AI Settings Tab */}
+                {activeTab === 'ai-settings' && (
+                    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-3xl">
+                        <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-100">
+                            <div className="flex items-center justify-between mb-6">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-3 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl shadow-lg">
+                                        <Sparkles className="text-white" size={24} />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-xl text-slate-800">Gemini AI Configuration</h3>
+                                        <p className="text-sm text-slate-500">Atur kecerdasan buatan untuk asisten virtual</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 bg-slate-50 px-4 py-2 rounded-full border border-slate-200">
+                                    <span className={`text-sm font-bold ${chatEnabled ? 'text-green-600' : 'text-slate-400'}`}>
+                                        {chatEnabled ? 'Chat Aktif' : 'Chat Non-Aktif'}
+                                    </span>
+                                    <button
+                                        onClick={() => updateChatEnabled(!chatEnabled)}
+                                        className={`w-12 h-6 rounded-full transition-all duration-300 relative ${chatEnabled ? 'bg-green-500' : 'bg-slate-300'}`}
+                                    >
+                                        <div className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow-md transition-all duration-300 ${chatEnabled ? 'left-7' : 'left-1'}`}></div>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <form onSubmit={(e) => {
+                                e.preventDefault();
+                                localStorage.setItem('geminiApiKey', aiApiKey);
+                                localStorage.setItem('geminiSystemPrompt', aiPrompt);
+                                alert('Pengaturan AI berhasil disimpan!');
+                            }} className="space-y-6">
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Gemini API Key</label>
+                                    <div className="relative">
+                                        <input
+                                            type="password"
+                                            className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all bg-slate-50 pr-10"
+                                            value={aiApiKey}
+                                            onChange={(e) => setAiApiKey(e.target.value)}
+                                            placeholder="Masukkan API Key dari Google AI Studio"
+                                        />
+                                    </div>
+                                    <p className="text-xs text-slate-500 mt-2">
+                                        Dapatkan API Key di <a href="https://aistudio.google.com/" target="_blank" className="text-blue-600 hover:underline">Google AI Studio</a>. Key ini disimpan di local browser untuk demo.
+                                    </p>
+                                </div>
+
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">System Instruction / RAG Prompt</label>
+                                    <textarea
+                                        className="w-full px-4 py-3 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-400 transition-all bg-slate-50 h-40 font-mono text-sm"
+                                        value={aiPrompt}
+                                        onChange={(e) => setAiPrompt(e.target.value)}
+                                        placeholder="Contoh: Kamu adalah asisten hotel RoomQu. Jawab dengan ramah..."
+                                    />
+                                    <p className="text-xs text-slate-500 mt-2">
+                                        Instruksi ini akan digabungkan dengan data hotel otomatis (RAG) saat mengirim ke AI.
+                                        Kosongkan untuk menggunakan prompt default.
+                                    </p>
+                                </div>
+
+                                <div className="pt-4 border-t border-slate-100 flex justify-end">
+                                    <button
+                                        type="submit"
+                                        className="bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-8 py-3 rounded-xl font-bold shadow-lg shadow-blue-200 transition-all active:scale-95"
+                                    >
+                                        Simpan Konfigurasi AI
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+
+                        {/* Database Tools (Dev Mode) */}
+                        <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-100">
+                            <div className="flex items-center gap-3 mb-6">
+                                <div className="p-3 bg-red-100 rounded-xl shadow-sm">
+                                    <Settings className="text-red-600" size={24} />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-xl text-slate-800">Database Tools</h3>
+                                    <p className="text-sm text-slate-500">Alat bantu pengembang dan pemeliharaan</p>
+                                </div>
+                            </div>
+
+                            <div className="bg-slate-50 p-6 rounded-xl border border-slate-200">
+                                <p className="text-sm text-slate-600 mb-4">
+                                    Jika dashboard kosong, Anda dapat menggunakan tombol ini untuk mengisi database dengan data dummy awal.
+                                    Pastikan koneksi internet lancar.
+                                </p>
+                                <button
+                                    onClick={handleSeedDatabase}
+                                    className="px-6 py-3 bg-white text-slate-700 font-bold rounded-lg border-2 border-slate-200 hover:border-red-500 hover:text-red-500 hover:bg-red-50 transition-all flex items-center gap-2"
+                                >
+                                    <Sparkles size={18} />
+                                    Seed Dummy Data to Firebase
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}

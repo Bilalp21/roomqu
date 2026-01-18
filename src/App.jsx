@@ -11,6 +11,7 @@ import PartnerDashboard from './partner/PartnerDashboard';
 import { AuthProvider } from './AuthContext';
 import { SiteProvider } from './SiteContext';
 import { AdminRoute, PartnerRoute, UserRoute } from './RouteProtection';
+import ChatWidget from './ChatWidget';
 
 export default function App() {
   return (
@@ -48,6 +49,7 @@ export default function App() {
             {/* Legacy/Redirect Routes */}
             <Route path="/partner" element={<Navigate to="/partner/dashboard" replace />} />
           </Routes>
+          <ChatWidget />
         </BrowserRouter>
       </SiteProvider>
     </AuthProvider>
