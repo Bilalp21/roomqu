@@ -11,7 +11,7 @@ export function useSite() {
 export function SiteProvider({ children }) {
     // Initialize from localStorage or default
     const [siteName, setSiteName] = useState(() => {
-        return localStorage.getItem('siteName') || 'Blueking';
+        return localStorage.getItem('siteName') || 'RoomQu';
     });
     const [loading, setLoading] = useState(true);
 
@@ -30,7 +30,7 @@ export function SiteProvider({ children }) {
                 // If doc doesn't exist, we try to create it, but we don't overwrite local if it exists?
                 // Actually, let's just try to set it if we have a value
                 if (!localStorage.getItem('siteName')) {
-                    setDoc(settingsRef, { siteName: 'Blueking' }).catch(err => console.log("Init failed", err));
+                    setDoc(settingsRef, { siteName: 'RoomQu' }).catch(err => console.log("Init failed", err));
                 }
             }
             setLoading(false);

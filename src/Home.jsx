@@ -544,7 +544,7 @@ export default function Home() {
                     <div>
                         <div className="flex items-center gap-2 mb-4">
                             <Shield className="w-6 h-6 text-blue-400" />
-                            <h2 className="text-2xl font-bold">Blueking</h2>
+                            <h2 className="text-2xl font-bold">RoomQu</h2>
                         </div>
                         <p className="text-slate-400 text-sm">Platform booking hotel multi-vendor terpercaya di Indonesia.</p>
                     </div>
